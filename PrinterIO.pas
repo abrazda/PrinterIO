@@ -21,7 +21,7 @@ type
     property Title : String read FTitle write FTitle;
 //    property Copies:Integer read FCopies write FCopies;
 
-    constructor Create(const APrinterName:String);
+    constructor Create(const APrinterName:String;AEncoding:TEncoding=nil);
     destructor Destroy();override;
 
     procedure BeginDoc() overload;
@@ -32,17 +32,26 @@ type
     function Write(const AValue:String):TPrinterIO;
     function WriteLn():TPrinterIO overload;
     function WriteLn(const AValue:String):TPrinterIO overload;
+
+    procedure PrintFile(const AFileName:String);
   end;
 
 implementation
 
-constructor TPrinterIO.Create(const APrinterName:String);
+uses
+  System.IOUtils;
+
+constructor TPrinterIO.Create(const APrinterName:String;AEncoding:TEncoding);
 begin
-  inherited Create;
+  inherited Create();
 
   if not OpenPrinter(pChar(APrinterName),FHandle,nil) then
-    RaiseLastOSError; // Exception.Create('OpenPrinter('+APrinterName+')');
-  FEncoding:=TEncoding.GetEncoding(850);
+    RaiseLastOSError(); // Exception.Create('OpenPrinter('+APrinterName+')');
+
+  if Assigned(AEncoding) then
+    FEncoding:=AEncoding.Clone()
+  else
+    FEncoding:=TEncoding.GetEncoding(850);
 end;
 
 destructor TPrinterIO.Destroy();
@@ -60,10 +69,15 @@ begin
   DOC_INFO.pDocName:=pChar(FTitle);
   DOC_INFO.pOutputFile:=nil;
   DOC_INFO.pDatatype:='RAW';
-  if GetVersion()=4 then
-    DOC_INFO.pDatatype:='XPS_PASS';
 
   FJobId:=StartDocPrinter(FHandle,1,@DOC_INFO);
+
+  if (FJobId=0) and (GetVersion()=4) then
+  begin
+    DOC_INFO.pDatatype:='XPS_PASS';
+    FJobId:=StartDocPrinter(FHandle,1,@DOC_INFO);
+  end;
+
   if FJobId=0 then
     RaiseLastOSError();
 
@@ -98,6 +112,17 @@ begin
     RaiseLastOSError();
 
   Result:=PDriverInfo2(Buffer).cVersion;
+end;
+
+procedure TPrinterIO.PrintFile(const AFileName: String);
+var
+  Written : Cardinal;
+  Buffer: TBytes;
+begin
+  BeginDoc(TPath.GetFileNameWithoutExtension(AFileName));
+    Buffer:=TFile.ReadAllBytes(AFileName);
+    WritePrinter(FHandle,pByte(Buffer),Length(Buffer),Written);
+  EndDoc();
 end;
 
 procedure TPrinterIO.Abort();
